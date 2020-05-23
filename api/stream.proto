@@ -4,14 +4,14 @@ package stream;
 option go_package = "github.com/jmesmon/wgrc/api";
 
 service Streamer {
-	rpc Listen(ListenReq) returns (stream ListenEvents);
+	rpc Listen(ListenReq) returns (stream ListenEvent);
 }
 
 message ListenReq {
 	string hi = 1;
 }
 
-message ListenEvents {
+message ListenEvent {
 	string other = 1;
 	uint64 val = 2;
 }
