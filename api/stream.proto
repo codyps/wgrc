@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package stream;
+option go_package = "github.com/jmesmon/wgrc/api";
+
+service Streamer {
+	rpc Listen(ListenReq) returns (stream ListenEvents);
+}
+
+message ListenReq {
+	string hi = 1;
+}
+
+message ListenEvents {
+	string other = 1;
+	uint64 val = 2;
+}
