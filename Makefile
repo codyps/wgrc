@@ -1,11 +1,12 @@
 .PHONY: all
-all: build/cmd
+all: cmd
 
 GOPATH ?= $(HOME)/go
 
-build/cmd: proto
+.PHONY: cmd
+cmd: proto
 	mkdir -p build
-	go build -o build ./cmd
+	go build -o build ./cmd/...
 
 .PHONY: proto
 proto:

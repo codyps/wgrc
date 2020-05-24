@@ -8,10 +8,9 @@ service Streamer {
 }
 
 message ListenReq {
-	string hi = 1;
 }
 
 message ListenEvent {
-	string other = 1;
-	uint64 val = 2;
+	uint64 id = 1;
+	int32 new_state = 2;
 }
