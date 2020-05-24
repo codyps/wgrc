@@ -1,2 +1,0 @@
-#! /bin/bash
-exec grpcurl -proto api/stream.proto -d '{}' -plaintext localhost:7777 stream.Streamer/Listen
