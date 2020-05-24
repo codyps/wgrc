@@ -6,7 +6,7 @@ GOPATH ?= $(HOME)/go
 .PHONY: cmd
 cmd: proto
 	mkdir -p build
-	go build -o build ./cmd/...
+	go build -race -o build ./cmd/...
 
 .PHONY: proto
 proto:

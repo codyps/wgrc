@@ -29,6 +29,7 @@ func (le *listenerEvent) AsPbEvent() pb.ListenEvent {
 }
 
 type listener struct {
+	idx int
 	events chan listenerEvent
 }
 
@@ -61,7 +62,7 @@ const MAX_ITEMS = 10000
 func (s *streamerServer) EventsGenerate() {
 	next_id := uint64(1)
 	for {
-		time.Sleep(1000000000)
+		time.Sleep(10000000)
 		if len(s.items) < MAX_ITEMS {
 			add := rand.Int31n(2)
 			if add != 0 {
@@ -136,21 +137,53 @@ func NewServer() *streamerServer {
 	return &s
 }
 
+func (s *streamerServer) AddListener() *listener {
+	idx := len(s.listeners)
+	q := listener {
+		events: make(chan listenerEvent),
+		idx: idx,
+	}
+
+	s.listeners = append(s.listeners, &q)
+	return &q
+}
+
+func (s *streamerServer) RemoveListener(l *listener) {
+	s.stateLock.Lock()
+	last_idx := len(s.listeners) - 1
+	if l.idx < last_idx {
+		// swap
+		last := s.listeners[last_idx]
+		last.idx = l.idx
+	}
+	s.listeners[last_idx] = nil
+	s.listeners = s.listeners[:last_idx]
+	s.stateLock.Unlock()
+}
+
 func (s *streamerServer) Listen(in *pb.ListenReq, stream pb.Streamer_ListenServer) error {
 	s.stateLock.Lock()
 	for _, e := range s.items {
 		log.Println("sending ", e.id)
 		n := e.AsPbEvent()
-		stream.Send(&n)
+		err := stream.Send(&n)
+		if err != nil {
+			s.stateLock.Unlock()
+			return err
+		}
 	}
-	q := listener { events: make(chan listenerEvent) }
-	s.listeners = append(s.listeners, &q)
+	l := s.AddListener()
 	s.stateLock.Unlock()
 
 	for {
-		v := <-q.events
+		v := <-l.events
 		n := v.AsPbEvent()
-		stream.Send(&n)
+		err := stream.Send(&n)
+		if err != nil {
+			log.Println("error: ", err)
+			s.RemoveListener(l)
+			return err
+		}
 	}
 }
 
@@ -169,5 +202,4 @@ func main() {
 	if err := s.Serve(listen); err != nil {
 		log.Fatalf("failed to server: %s", err)
 	}
-
 }
