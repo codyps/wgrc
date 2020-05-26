@@ -1,4 +1,3 @@
-//go:generate protoc --go_out=plugins=grpc:api stream.proto
 package main
 
 import (
