@@ -2,17 +2,17 @@ package main
 
 import (
 	"log"
-	"net"
-	"time"
-	"sync"
 	"math/rand"
+	"net"
+	"sync"
+	"time"
 
 	pb "github.com/jmesmon/wgrc/api"
 	"google.golang.org/grpc"
 )
 
 type listenerEvent struct {
-	id uint64
+	id       uint64
 	newState bool
 }
 
@@ -21,19 +21,20 @@ func (le *listenerEvent) AsPbEvent() pb.ListenEvent {
 	if le.newState {
 		ns = 1
 	}
-	return pb.ListenEvent {
-		Id: le.id,
+	return pb.ListenEvent{
+		Id:       le.id,
 		NewState: int32(ns),
 	}
 }
 
 type listener struct {
-	idx int
+	idx    int
+	done chan struct{};
 	events chan listenerEvent
 }
 
 type item struct {
-	id uint64
+	id    uint64
 	state bool
 }
 
@@ -42,8 +43,8 @@ func (i *item) AsPbEvent() pb.ListenEvent {
 	if i.state {
 		ns = 1
 	}
-	return pb.ListenEvent {
-		Id: i.id,
+	return pb.ListenEvent{
+		Id:       i.id,
 		NewState: int32(ns),
 	}
 }
@@ -52,7 +53,7 @@ type streamerServer struct {
 	pb.UnimplementedStreamerServer
 
 	stateLock sync.Mutex
-	items []*item
+	items     []*item
 	listeners []*listener
 }
 
@@ -67,8 +68,8 @@ func (s *streamerServer) EventsGenerate() {
 			if add != 0 {
 				log.Println("adding new item ", next_id)
 				s.stateLock.Lock()
-				e := item {
-					id: next_id,
+				e := item{
+					id:    next_id,
 					state: true,
 				}
 				next_id++
@@ -76,9 +77,14 @@ func (s *streamerServer) EventsGenerate() {
 				s.items = append(s.items, &e)
 
 				for _, listener := range s.listeners {
-					listener.events <-listenerEvent {
-						id: e.id,
-						newState: e.state,
+					select {
+					case <- listener.done:
+						s.RemoveListener(listener)
+					default:
+						listener.events <- listenerEvent{
+							id:       e.id,
+							newState: e.state,
+						}
 					}
 				}
 				s.stateLock.Unlock()
@@ -96,9 +102,14 @@ func (s *streamerServer) EventsGenerate() {
 					log.Println("item disable ", e.id)
 					e.state = false
 					for _, listener := range s.listeners {
-						listener.events <-listenerEvent {
-							id: e.id,
-							newState: e.state,
+						select {
+						case <- listener.done:
+							s.RemoveListener(listener)
+						default:
+							listener.events <- listenerEvent{
+								id:       e.id,
+								newState: e.state,
+							}
 						}
 					}
 				}
@@ -112,9 +123,14 @@ func (s *streamerServer) EventsGenerate() {
 					log.Println("item enable ", e.id)
 					e.state = true
 					for _, listener := range s.listeners {
-						listener.events <-listenerEvent {
-							id: e.id,
-							newState: e.state,
+						select {
+						case <- listener.done:
+							s.RemoveListener(listener)
+						default:
+							listener.events <- listenerEvent{
+								id:       e.id,
+								newState: e.state,
+							}
 						}
 					}
 				}
@@ -128,8 +144,8 @@ func NewServer() *streamerServer {
 	items := make([]*item, 0)
 	listeners := make([]*listener, 0)
 
-	s := streamerServer {
-		items: items,
+	s := streamerServer{
+		items:     items,
 		listeners: listeners,
 	}
 	go s.EventsGenerate()
@@ -138,9 +154,10 @@ func NewServer() *streamerServer {
 
 func (s *streamerServer) AddListener() *listener {
 	idx := len(s.listeners)
-	q := listener {
+	q := listener{
 		events: make(chan listenerEvent),
-		idx: idx,
+		done: make(chan struct {}),
+		idx:    idx,
 	}
 
 	s.listeners = append(s.listeners, &q)
@@ -148,7 +165,7 @@ func (s *streamerServer) AddListener() *listener {
 }
 
 func (s *streamerServer) RemoveListener(l *listener) {
-	s.stateLock.Lock()
+	close(l.events)
 	last_idx := len(s.listeners) - 1
 	if l.idx < last_idx {
 		// swap
@@ -157,7 +174,6 @@ func (s *streamerServer) RemoveListener(l *listener) {
 	}
 	s.listeners[last_idx] = nil
 	s.listeners = s.listeners[:last_idx]
-	s.stateLock.Unlock()
 }
 
 func (s *streamerServer) Listen(in *pb.ListenReq, stream pb.Streamer_ListenServer) error {
@@ -180,7 +196,14 @@ func (s *streamerServer) Listen(in *pb.ListenReq, stream pb.Streamer_ListenServe
 		err := stream.Send(&n)
 		if err != nil {
 			log.Println("error: ", err)
-			s.RemoveListener(l)
+			close(l.done)
+			for {
+				_, ok := <-l.events
+				if !ok {
+					break
+				}
+			}
+			log.Println("removed")
 			return err
 		}
 	}
