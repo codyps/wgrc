@@ -95,13 +95,35 @@ impl Streamer for StreamX {
                 let v = lrx.recv().await.unwrap();   
                 let n = v.as_pb_event();
 
-                tx.send(Ok(n)).await.unwrap();
+                match tx.send(Ok(n)).await {
+                    Ok(_) => {},
+                    Err(e) => {
+                        eprintln!("closing listener: {}", e);
+                        // implicitly closes our end of the channel
+                        return;
+                    },
+                }
             }
         });
 
         Ok(Response::new(rx))
     }
 }
+
+async fn send_event(ss: &mut Stream,event: ItemEvent) {
+
+    for ix in 0..ss.listeners.len() {
+        match ss.listeners[ix].queue.send(event.clone()).await {
+            Ok(_) => {},
+            Err(e) => {
+                // other end closed down, remove this listener
+                println!("closing listener");
+                ss.listeners.remove(ix);
+            },
+        }
+    }
+}
+
 
 async fn generate(sa: Arc<Mutex<Stream>>) {
     let mut next_id = 1;
@@ -124,52 +146,28 @@ async fn generate(sa: Arc<Mutex<Stream>>) {
 
                         ss.items.push(i.clone());
 
-                        for listener in ss.listeners.iter_mut() {
-                            listener.queue.send(ItemEvent {
-                                id: i.id,
-                                new_state: i.state,
-                            }).await.unwrap();
-                        }
+                        send_event(&mut ss, ItemEvent {
+                            id: i.id,
+                            new_state: i.state,
+                        }).await;
                     }
                 }
             }
 
-            if rand::random() {
-                // down
-                let mut sz = sa.lock().await;
-                let ss : &mut Stream = &mut *sz;
-                if ss.items.len() != 0 {
-                    let idx = rand::thread_rng().gen_range(0, ss.items.len());
-                    let i = &mut ss.items[idx];
-                    if i.state {
-                        println!("item disable: {}", i.id);
-                        i.state = false;
-                        for listener in ss.listeners.iter_mut() {
-                            listener.queue.send(ItemEvent {
-                                id: i.id,
-                                new_state: i.state,
-                            }).await.unwrap()
-                        }
-                    }
-                }
-
-            } else {
-                // up
-                let mut sz = sa.lock().await;
-                let ss = &mut *sz;
-                if ss.items.len() != 0 {
-                    let idx = rand::thread_rng().gen_range(0, ss.items.len());
-                    let i = &mut ss.items[idx];
-                    if !i.state {
-                        println!("item enable: {}", i.id);
-                        i.state = true;
-                        for listener in ss.listeners.iter_mut() {
-                            listener.queue.send(ItemEvent {
-                                id: i.id,
-                                new_state: i.state,
-                            }).await.unwrap();
-                        }
-                    }
+            let mut sz = sa.lock().await;
+            let ss : &mut Stream = &mut *sz;
+            if ss.items.len() != 0 {
+                let idx = rand::thread_rng().gen_range(0, ss.items.len());
+                let i = &mut ss.items[idx];
+                let new_state = rand::random();
+                if i.state != new_state{
+                    println!("item change: {} to {}", i.id, new_state);
+                    i.state = new_state;
+                    let e = ItemEvent {
+                        id: i.id,
+                        new_state: i.state,
+                    };
+                    send_event(ss, e).await;
                 }
             }
         }
