@@ -78,7 +78,10 @@ impl Streamer for StreamX {
             let mut lrx = {
                 let mut ss = ss.lock().await;
                 for i in ss.items.iter() {
-                    tx.send(Ok(i.as_pb_event())).await.unwrap();
+                    match tx.send(Ok(i.as_pb_event())).await {
+                        Ok(_) => {},
+                        Err(_) => { return; },
+                    }
                 }
 
                 let (ltx, lrx) = mpsc::channel(4);
@@ -96,7 +99,7 @@ impl Streamer for StreamX {
 
                 match tx.send(Ok(n)).await {
                     Ok(_) => {},
-                    Err(e) => {
+                    Err(_) => {
                         //eprintln!("closing listener: {}", e);
                         // implicitly closes our end of the channel
                         return;
