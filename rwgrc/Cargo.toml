@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 tonic = "0.2"
 prost = "0.6"
-tokio = { version = "0.2", features = ["macros"] }
+tokio = { version = "1.13", features = ["macros"] }
 rand = "0.7"
 log = "*"
 env_logger = "*"
